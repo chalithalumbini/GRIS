@@ -1,5 +1,8 @@
 <div align="center">
 
+<p align="center">
+  <img src="figures/banner.png" alt="GRIS Banner" width="100%">
+</p>
 
 # GRIS
 
@@ -7,9 +10,14 @@
 
 *An interpretable dependency-based framework for Machine Translation Evaluation.*
 
+<p align="center">
+
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![Research](https://img.shields.io/badge/NLP-Research-red.svg)
+![NLP](https://img.shields.io/badge/NLP-Machine%20Translation-orange.svg)
+![Research](https://img.shields.io/badge/Research-Explainable%20AI-red.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
+
+</p>
 
 </div>
 
@@ -20,6 +28,16 @@
 GRIS (Grammatical Interpretable Translation Scoring) is a research framework for evaluating machine translation quality through dependency-based grammatical analysis and semantic similarity. The framework combines syntactic structure and semantic representations to produce transparent and interpretable evaluation scores.
 
 ---
+
+## ✨ Highlights
+
+- 📖 Interpretable Machine Translation Evaluation
+- 🌳 Dependency Tree Matching
+- 🧠 Sentence Embedding Similarity
+- 🔍 Explainable Evaluation Scores
+- ⚡ Modular Python Package
+- 🎯 Designed for NLP Research
+  
 
 ## 🎯 Why GRIS?
 
@@ -41,35 +59,14 @@ GRIS addresses this challenge by combining **dependency-based grammatical analys
 
 GRIS evaluates machine translation quality through a multi-stage pipeline that integrates grammatical structure with semantic similarity.
 
-```text
-                 Reference Translation
-                          │
-                          ▼
-                 Dependency Parsing
-                          │
-                          ▼
-                 Dependency Tree
-                          │
-                          │
-Candidate Translation ─► Dependency Parsing
-                          │
-                          ▼
-                 Dependency Tree
-                          │
-                          ▼
-                 Tree Matching
-                          │
-                          ▼
-              Structural Similarity Score
-                          │
-                          ▼
-            Sentence Embedding Similarity
-                          │
-                          ▼
-               Weighted Score Aggregation
-                          │
-                          ▼
-                    Final GRIS Score
+## 🏗 Architecture
+
+<p align="center">
+
+<img src="figures/pipeline.png" width="900">
+
+</p>
+
 ```
 
 The framework consists of five major components:
@@ -121,6 +118,14 @@ score = Evaluate(
 
 print(score)
 ```
+## 🎥 Demo
+
+The GRIS dashboard provides an interactive interface for evaluating machine translations using dependency-based structural similarity and semantic similarity.
+
+<p align="center">
+<img src="figures/dashboard.gif" width="900">
+</p>
+
 
 GRIS returns an interpretable evaluation score by combining dependency-based structural similarity with semantic similarity.
 
