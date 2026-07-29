@@ -124,7 +124,7 @@ GRIS
 Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/GRIS.git
+git clone https://github.com/chalithalumbini/GRIS.git
 
 cd GRIS
 ```
