@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gris-mt-eval"
+version = "2.4.0"
+description = "GRIS: interpretable MT evaluation via GRIS-DepScore (dependency matching) and GRIS-SynGram (subtree n-gram matching)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Chalitha" }]
+
+# Core deps: everything imported unconditionally at module load time by
+# gris/__init__.py's import chain (scorer -> model_cache -> parser_constituency
+# pulls in spacy/benepar even though constituency parsing is English-only —
+# see README "Known packaging note" if you want that made optional/lazy).
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "gensim>=4.3",
+    "sentence-transformers>=2.2",
+    "stanza>=1.5",
+    "spacy>=3.5",
+    "benepar>=0.2.0",
+    "ftfy>=6.1",
+    "nltk>=3.8",
+    "graphviz>=0.20",
+]
+
+[project.optional-dependencies]
+# Needed only for Evaluate.py's correlation/ablation harness and the
+# comparison metrics (BLEU/chrF/METEOR/BERTScore) shown alongside GRIS.
+eval = [
+    "pandas>=2.0",
+    "sacrebleu>=2.3",
+    "bert-score>=0.3.13",
+]
+# Needed only to run the Streamlit diagnostic dashboard.
+dashboard = [
+    "streamlit>=1.28",
+    "pandas>=2.0",
+    "sacrebleu>=2.3",
+    "bert-score>=0.3.13",
+]
+# Optional reference-free/quality-estimation comparison metric.
+comet = [
+    "unbabel-comet>=2.2",
+]
+
+[project.scripts]
+gris-score = "gris.scorer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

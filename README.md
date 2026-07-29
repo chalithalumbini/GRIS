@@ -1,235 +1,50 @@
-<div align="center">
+# GRIS — Interpretable MT Evaluation
 
-<p align="center">
-  <img src="figures/banner.png" alt="GRIS Banner" width="100%">
-</p>
+Two complementary metrics:
+- **GRIS-DepScore** — dependency-structure matching (Hungarian algorithm).
+- **GRIS-SynGram** — subtree path n-gram matching.
 
-# GRIS
-
-### Grammatical Interpretable Translation Scoring
-
-*An interpretable dependency-based framework for Machine Translation Evaluation.*
-
-<p align="center">
-
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![NLP](https://img.shields.io/badge/NLP-Machine%20Translation-orange.svg)
-![Research](https://img.shields.io/badge/Research-Explainable%20AI-red.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-
-</p>
-
-</div>
-
----
-
-## 📖 Overview
-
-GRIS (Grammatical Interpretable Translation Scoring) is a research framework for evaluating machine translation quality through dependency-based grammatical analysis and semantic similarity. The framework combines syntactic structure and semantic representations to produce transparent and interpretable evaluation scores.
-
----
-
-## ✨ Highlights
-
-- 📖 Interpretable Machine Translation Evaluation
-- 🌳 Dependency Tree Matching
-- 🧠 Sentence Embedding Similarity
-- 🔍 Explainable Evaluation Scores
-- ⚡ Modular Python Package
-- 🎯 Designed for NLP Research
-  
-
-## 🎯 Why GRIS?
-
-Machine Translation (MT) evaluation is a fundamental task in Natural Language Processing. Traditional evaluation metrics such as BLEU primarily rely on lexical overlap, while recent neural metrics often provide limited interpretability.
-
-GRIS addresses this challenge by combining **dependency-based grammatical analysis** with **semantic similarity**, producing evaluation scores that are both accurate and explainable.
-
-### Key Contributions
-
-- 🌳 Dependency tree-based structural evaluation
-- 🧠 Semantic similarity using sentence embeddings
-- 🔍 Explainable scoring instead of black-box evaluation
-- 📊 Linguistically informed translation assessment
-- 🧩 Modular and extensible evaluation framework
-
----
-
-## 🏗️ Architecture
-
-GRIS evaluates machine translation quality through a multi-stage pipeline that integrates grammatical structure with semantic similarity.
-
-## 🏗 Architecture
-
-<p align="center">
-
-<img src="figures/pipeline.png" width="900">
-
-</p>
-
-```
-
-The framework consists of five major components:
-
-| Component | Description |
-|-----------|-------------|
-| **Dependency Parser** | Extracts grammatical structures from the reference and candidate translations. |
-| **Tree Matcher** | Aligns dependency trees to measure structural similarity. |
-| **Structural Scorer** | Computes similarity based on dependency relationships. |
-| **Semantic Similarity** | Measures sentence-level meaning using sentence embeddings. |
-| **Score Aggregation** | Combines structural and semantic information into the final GRIS score. |
-
-
-## ⚙️ Installation
-
-### Clone the repository
+## Install
 
 ```bash
-git clone https://github.com/chalithalumbini/GRIS.git
-cd GRIS
+pip install .                 # core (DepScore + SynGram)
+pip install ".[eval]"         # + pandas/sacrebleu/bert-score for Evaluate.py
+pip install ".[dashboard]"    # + streamlit for the diagnostic dashboard
+pip install ".[comet]"        # + optional COMET comparison metric
 ```
 
-### Install dependencies
+For development (editable install, code changes picked up immediately):
 
 ```bash
-pip install -e .
+pip install -e ".[eval,dashboard]"
 ```
 
-or
-
-```bash
-pip install .
-```
-
----
-
-## 🚀 Quick Start
+## Usage
 
 ```python
-from gris import Evaluate
+from gris import compute_DepScore_emb, compute_syntactic_ngram_metric
 
-reference = "The cat is sleeping on the mat."
-candidate = "A cat sleeps on the mat."
-
-score = Evaluate(
-    reference=reference,
-    hypothesis=candidate
-)
-
-print(score)
-```
-## 🎥 Demo
-
-The GRIS dashboard provides an interactive interface for evaluating machine translations using dependency-based structural similarity and semantic similarity.
-
-<p align="center">
-<img src="figures/dashboard.gif" width="900">
-</p>
-
-
-GRIS returns an interpretable evaluation score by combining dependency-based structural similarity with semantic similarity.
-
-## 📂 Repository Structure
-
-```text
-GRIS/
-├── src/
-│   └── gris/
-│       ├── parser.py
-│       ├── matcher.py
-│       ├── scorer.py
-│       ├── embedder.py
-│       └── Evaluate.py
-├── examples/
-├── docs/
-├── tests/
-├── pyproject.toml
-├── README.md
-└── LICENSE
+dep = compute_DepScore_emb(hyps=["Der Hund lief schnell."],
+                            refs=["Der Hund rannte schnell."], lang="de")
 ```
 
-## 🔬 Research Applications
+Or from the command line:
 
-GRIS is designed for researchers and practitioners working in Natural Language Processing and Machine Translation. Potential applications include:
-
-- 🌍 Machine Translation Evaluation
-- 🧠 Explainable AI for NLP
-- 🌳 Dependency-based Linguistic Analysis
-- 📊 Evaluation Metric Benchmarking
-- 🔍 Semantic Similarity Analysis
-- 📚 Academic Research in Computational Linguistics
-
-The framework is modular and can be extended to support additional languages, parsing frameworks, and evaluation strategies.
-
-## 🛠️ Technologies
-
-### Programming Languages
-
-- Python
-
-### Natural Language Processing
-
-- Stanza
-- spaCy
-- Sentence Transformers
-- NLTK
-- Gensim
-
-### Machine Learning
-
-- PyTorch
-- Scikit-learn
-
-### Data Science
-
-- NumPy
-- Pandas
-- Matplotlib
-
-### Development
-
-- Git
-- GitHub
-
-## 🚀 Future Work
-
-Future development of GRIS will focus on:
-
-- 🌐 Multilingual machine translation evaluation
-- 🤖 Integration with Large Language Models (LLMs)
-- 📈 Benchmarking on WMT datasets
-- 🔍 Enhanced explainability and visualization
-- ⚡ Performance optimization for large-scale evaluation
-- 📦 Public release on PyPI
-
-
-## 📖 Citation
-
-If you use GRIS in your research, please cite this repository:
-
-```bibtex
-@software{lumbini2026gris,
-  title={GRIS: Grammatical Interpretable Translation Scoring},
-  author={Chalitha Lumbini},
-  year={2026},
-  url={https://github.com/chalithalumbini/GRIS}
-}
+```bash
+gris-score --hyp hyps.txt --ref refs.txt --lang de
 ```
 
-## 👨‍💻 Author
+Run the dashboard (after `pip install ".[dashboard]"`):
 
-**Chalitha Lumbini**
+```bash
+streamlit run $(python -c "import gris, os; print(os.path.join(os.path.dirname(gris.__file__), 'dashboard_corrected.py'))")
+```
 
-MSc in Statistical Data Analytics (Distinction)  
-Tampere University, Finland
+## Known packaging note
 
-**Research Interests**
-
-- Natural Language Processing
-- Machine Translation
-- Explainable AI
-- Statistical Machine Learning
-- Trustworthy AI
-
-📧 Email: chalitha.lumbini@gmail.com
-💼 LinkedIn: https://www.linkedin.com/in/chalitha-lumbini-085269170/
+`gris/parser_constituency.py` imports `spacy` and `benepar` unconditionally,
+and `gris/model_cache.py` imports that module unconditionally too — so
+`spacy`/`benepar` are currently **required** even though constituency
+parsing is only used for English and only affects SVG tree visualization.
+If you want a lighter install, this import can be made lazy (moved inside
+`ConstituencyParser.__init__`) on request.
