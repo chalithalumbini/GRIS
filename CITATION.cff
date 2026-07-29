@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: "GRIS: Grammatical Interpretable Translation Scoring"
+message: "If you use this software, please cite it as below."
+type: software
+
+authors:
+  - family-names: "Lumbini"
+    given-names: "Chalitha"
+
+repository-code: "https://github.com/YOUR_USERNAME/GRIS"
+
+license: MIT
+
+keywords:
+  - machine-translation
+  - nlp
+  - explainable-ai
+  - dependency-parsing
