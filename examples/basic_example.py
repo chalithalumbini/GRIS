@@ -8,6 +8,7 @@ score = compute_DepScore_emb(
     hyps=hypotheses,
     refs=references,
     lang="de"
+    explain=True,
 )
 
 print("GRIS-DepScore:", score)
