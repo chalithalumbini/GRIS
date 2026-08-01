@@ -459,7 +459,9 @@ def compute_sentence_similarity(
     lang: str = "en", matching: str = "hungarian", debug: bool = False,
     passive_sent_penalty: float = 1.0,
     neg_sent_penalty: float = NEG_SENT_PENALTY,
-    soften_structure: bool = False, **_,
+    soften_structure: bool = False,
+    return_details: bool = False,
+    **_,
 ):
     """
     GRIS-DepScore for one sentence pair.
@@ -469,6 +471,13 @@ def compute_sentence_similarity(
 
     Then multiplied by NEG_SENT_PENALTY (0.90) if negation mismatch,
     and by MAIN_SUBJ_PROPN_PENALTY (0.80) if PROPN subject mismatch.
+
+    If return_details=True, returns (score, details) where `details` is a
+    dict describing exactly how the score was derived: every hyp/ref edge
+    pair that was matched (with the head/dep cosine similarities and
+    bonuses that produced each edge's contribution), precision/recall/Fβ,
+    the sentence-cosine fallback, the language blend weight, and which
+    sentence-level penalties fired. See `explain_dep_score()` to pretty-print it.
     """
     # ── Token embeddings ──────────────────────────────────────────────────────
     if embedder.embedding_type == "transformer":
@@ -491,30 +500,71 @@ def compute_sentence_similarity(
     # ── Negation flags ────────────────────────────────────────────────────────
     h_neg = sentence_has_negation(dep_h)
     r_neg = sentence_has_negation(dep_r)
+    h_passive = sentence_has_passive(dep_h)
+    r_passive = sentence_has_passive(dep_r)
 
     # ── Edge extraction ───────────────────────────────────────────────────────
     hyp_edges = extract_edges(dep_h)
     ref_edges = extract_edges(dep_r)
 
+    def _edge_label(edge):
+        head, dep = edge
+        return f"{head.text}→{dep.text} ({dep.deprel or 'dep'})"
+
+    matched_detail = []
+    unmatched_hyp_detail, unmatched_ref_detail = [], []
+    verbosity_fired = False
+    length_penalty  = 1.0
+    beta = 1.5
+
     # ── Edge F1 ───────────────────────────────────────────────────────────────
     if not hyp_edges and not ref_edges:
         edge_f1 = 1.0
+        prec = rec = 1.0
     elif not hyp_edges or not ref_edges:
         edge_f1 = sentence_cosine
+        prec = rec = sentence_cosine
+        for e in hyp_edges:
+            unmatched_hyp_detail.append({"edge": _edge_label(e)})
+        for e in ref_edges:
+            unmatched_ref_detail.append({"edge": _edge_label(e)})
     else:
         sim_matrix = np.zeros((len(hyp_edges), len(ref_edges)), dtype=np.float32)
+        attr_matrix = [[None] * len(ref_edges) for _ in range(len(hyp_edges))]
         for i, h in enumerate(hyp_edges):
             for j, r in enumerate(ref_edges):
-                sim, _ = compute_edge_similarity(
+                sim, attr = compute_edge_similarity(
                     h, r, hyp_embeds, ref_embeds, embedder,
                     debug=debug, lang=lang,
                 )
                 sim_matrix[i, j] = float(sim)
+                attr_matrix[i][j] = attr
 
         if matching == "hungarian":
             row_ind, col_ind = linear_sum_assignment(-sim_matrix)
         else:
             row_ind, col_ind = greedy_matching(sim_matrix)
+
+        matched_i, matched_j = set(row_ind), set(col_ind)
+        if return_details:
+            for i, j in zip(row_ind, col_ind):
+                a = attr_matrix[i][j] or {}
+                matched_detail.append({
+                    "hyp_edge": _edge_label(hyp_edges[i]),
+                    "ref_edge": _edge_label(ref_edges[j]),
+                    "similarity": round(float(sim_matrix[i, j]), 4),
+                    "head_sim":   a.get("head_sim"),
+                    "dep_sim":    a.get("dep_sim"),
+                    "bonuses":    a.get("bonuses", []),
+                    "deprel_match": a.get("deprel_match"),
+                })
+            for i in range(len(hyp_edges)):
+                if i not in matched_i:
+                    unmatched_hyp_detail.append({"edge": _edge_label(hyp_edges[i])})
+            for j in range(len(ref_edges)):
+                if j not in matched_j:
+                    unmatched_ref_detail.append({"edge": _edge_label(ref_edges[j])})
+            matched_detail.sort(key=lambda d: d["similarity"], reverse=True)
 
         total_sim = float(sum(sim_matrix[i, j] for i, j in zip(row_ind, col_ind)))
         n_h, n_r  = len(hyp_edges), len(ref_edges)
@@ -538,33 +588,158 @@ def compute_sentence_similarity(
         VP_THRESHOLD = 1.4
         VP_FACTOR    = 0.92
 
-        _b2  = 1.5 ** 2   # = 2.25
+        _b2  = beta ** 2   # = 2.25
         _den = _b2 * prec + rec
         f1   = (1.0 + _b2) * prec * rec / _den if _den > 0 else 0.0
 
         # Verbosity penalty
         if n_h > n_r * VP_THRESHOLD:
             f1 *= VP_FACTOR
+            verbosity_fired = True
 
         lr  = min(n_h, n_r) / max(n_h, n_r)
-        lp  = (0.85 + 0.15 * lr) if lr < 0.5 else 1.0
-        edge_f1 = max(0.0, min(1.0, f1 * lp))
+        length_penalty = (0.85 + 0.15 * lr) if lr < 0.5 else 1.0
+        edge_f1 = max(0.0, min(1.0, f1 * length_penalty))
 
     # ── Language-adaptive blend ───────────────────────────────────────────────
     w    = STRUCT_WEIGHT.get(lang, STRUCT_WEIGHT_DEFAULT)
     base = w * edge_f1 + (1.0 - w) * sentence_cosine
+    blend_base = base
 
     # ── PROPN subject check ───────────────────────────────────────────────────
+    base_before_propn = base
     base = _apply_main_subject_check(base, dep_h, dep_r, hyp_embeds, ref_embeds, embedder)
+    propn_fired = base != base_before_propn
 
     # ── Negation penalty ──────────────────────────────────────────────────────
-    if h_neg != r_neg:
+    base_before_neg = base
+    neg_mismatch = h_neg != r_neg
+    if neg_mismatch:
         base *= float(neg_sent_penalty)
 
-    return max(0.0, min(1.0, float(base)))
+    final_score = max(0.0, min(1.0, float(base)))
+
+    if not return_details:
+        return final_score
+
+    details = {
+        "hyp_edges": [_edge_label(e) for e in hyp_edges],
+        "ref_edges": [_edge_label(e) for e in ref_edges],
+        "matched":       matched_detail,
+        "unmatched_hyp": unmatched_hyp_detail,
+        "unmatched_ref": unmatched_ref_detail,
+        "precision": round(prec, 4),
+        "recall":    round(rec, 4),
+        "beta":      beta,
+        "verbosity_penalty_fired": verbosity_fired,
+        "length_penalty": round(length_penalty, 4),
+        "edge_f1":   round(edge_f1, 4),
+        "sentence_cosine": round(sentence_cosine, 4),
+        "lang": lang,
+        "blend_weight_W": w,
+        "blend_score": round(blend_base, 4),
+        "propn_check_fired": propn_fired,
+        "score_before_propn": round(base_before_propn, 4),
+        "score_before_negation": round(base_before_neg, 4),
+        "negation": {
+            "hyp_has_negation": h_neg, "ref_has_negation": r_neg,
+            "mismatch": neg_mismatch,
+            "penalty_applied": round(float(neg_sent_penalty), 4) if neg_mismatch else 1.0,
+        },
+        "passive": {
+            "hyp_is_passive": h_passive, "ref_is_passive": r_passive,
+            "mismatch": h_passive != r_passive,
+            "penalty_applied": 1.0,  # WMT22 final: passive is flagged only, never penalizes
+        },
+        "final_score": round(final_score, 4),
+    }
+    return final_score, details
 
 
-# ── Back-compat alias ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Human-readable explanation of a return_details=True breakdown
+# ══════════════════════════════════════════════════════════════════════════════
+
+def explain_dep_score(details: dict, hyp: str = None, ref: str = None,
+                       top_n: int = 10) -> str:
+    """
+    Render a `details` dict from compute_sentence_similarity(..., return_details=True)
+    (or the details list returned by scorer.compute_DepScore_emb(..., return_details=True))
+    as a readable, step-by-step explanation of how the GRIS-DepScore was derived.
+
+    Prints the explanation and also returns it as a string.
+    """
+    lines = []
+    w = lines.append
+    w("=" * 72)
+    if hyp is not None or ref is not None:
+        if ref is not None: w(f"REF: {ref}")
+        if hyp is not None: w(f"HYP: {hyp}")
+        w("-" * 72)
+
+    w(f"GRIS-DepScore = {details['final_score']}")
+    w("=" * 72)
+
+    w(f"\n1. Dependency edges extracted")
+    w(f"   hyp: {len(details['hyp_edges'])} edges | ref: {len(details['ref_edges'])} edges")
+
+    w(f"\n2. Edge matching (Hungarian assignment) — top {top_n} by similarity")
+    for m in details["matched"][:top_n]:
+        bonus_str = (", bonuses: " + ", ".join(f"{n}(+{v})" for n, v in m["bonuses"])
+                     if m["bonuses"] else "")
+        w(f"   {m['hyp_edge']:<28} ↔ {m['ref_edge']:<28} "
+          f"sim={m['similarity']:.3f} (head={m['head_sim']}, dep={m['dep_sim']}{bonus_str})")
+    n_more = len(details["matched"]) - top_n
+    if n_more > 0:
+        w(f"   ... and {n_more} more matched edge pair(s)")
+    if details["unmatched_hyp"]:
+        w(f"   unmatched HYP edges (no ref counterpart): "
+          f"{', '.join(e['edge'] for e in details['unmatched_hyp'])}")
+    if details["unmatched_ref"]:
+        w(f"   unmatched REF edges (missed by hyp):      "
+          f"{', '.join(e['edge'] for e in details['unmatched_ref'])}")
+
+    w(f"\n3. Precision / Recall / Fβ(β={details['beta']})")
+    w(f"   precision={details['precision']}, recall={details['recall']}"
+      f" → edge_F1={details['edge_f1']}")
+    if details["verbosity_penalty_fired"]:
+        w(f"   verbosity penalty applied (hyp has >40% more edges than ref)")
+    if details["length_penalty"] != 1.0:
+        w(f"   length penalty applied: ×{details['length_penalty']}"
+          f" (hyp/ref edge counts differ substantially)")
+
+    w(f"\n4. Language-adaptive blend (lang='{details['lang']}', W={details['blend_weight_W']})")
+    w(f"   blend = W×edge_F1 + (1-W)×sentence_cosine")
+    w(f"         = {details['blend_weight_W']}×{details['edge_f1']} + "
+      f"{round(1 - details['blend_weight_W'], 4)}×{details['sentence_cosine']}"
+      f" = {details['blend_score']}")
+
+    w(f"\n5. Sentence-level checks")
+    p = details["passive"]
+    flag = "MISMATCH (flagged only — never penalizes, WMT22 final)" if p["mismatch"] else "match"
+    w(f"   passive voice: hyp={p['hyp_is_passive']}, ref={p['ref_is_passive']} → {flag}")
+    n = details["negation"]
+    if n["mismatch"]:
+        w(f"   negation: hyp={n['hyp_has_negation']}, ref={n['ref_has_negation']} → "
+          f"MISMATCH → ×{n['penalty_applied']} penalty applied")
+    else:
+        w(f"   negation: hyp={n['hyp_has_negation']}, ref={n['ref_has_negation']} → match, no penalty")
+    if details["propn_check_fired"]:
+        w(f"   named-entity subject check: fired → "
+          f"{details['score_before_propn']} → ×0.80 → {details['score_before_negation']}")
+
+    w(f"\n6. Final score")
+    w(f"   {details['blend_score']} "
+      f"{'× ' + str(n['penalty_applied']) + ' (negation) ' if n['mismatch'] else ''}"
+      f"{'× 0.80 (named-entity subject) ' if details['propn_check_fired'] else ''}"
+      f"= {details['final_score']}")
+    w("=" * 72)
+
+    text = "\n".join(lines)
+    print(text)
+    return text
+
+
 def compute_edge_similarity_v23(
     hyp_edge, ref_edge, hyp_embeds, ref_embeds, embedder,
     debug: bool = False, soften_structure: bool = False,

@@ -338,8 +338,9 @@ st.markdown("""
   .parse-token {
     display:inline-block; font-family:monospace; font-size:12px;
     padding:3px 8px; margin:3px; border-radius:4px;
-    border:1px solid #d8d5cc; background:#fff;
+    border:1px solid #d8d5cc; background:#fff; color:#1a1b22 !important;
   }
+  .parse-token span { color:#1a1b22 !important; }
   .root-token { border-color:#c8a84b; background:#fffbee; color:#8a5a00; }
   .dep-row { font-family:monospace; font-size:12px; padding:4px 0; }
   .pen-ok   { color:#1e6b3a; background:#eaf3de; padding:3px 10px;
@@ -371,10 +372,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**GRIS v3.1** · Tampere University")
     st.markdown("Interpretable MT evaluation via dependency parsing.")
-    st.markdown("---")
-    st.markdown("**Penalty constants (WMT22 final)**")
-    st.markdown(f"- Negation mismatch: `×{NEG_PEN}` ✓ *WMT22*")
-    st.markdown(f"- Passive mismatch: `×1.0` (none) ✓ *WMT22*")
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""

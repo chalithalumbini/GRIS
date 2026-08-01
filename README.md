@@ -28,6 +28,41 @@ dep = compute_DepScore_emb(hyps=["Der Hund lief schnell."],
                             refs=["Der Hund rannte schnell."], lang="de")
 ```
 
+### Interpretability, without the dashboard
+
+`compute_DepScore_emb` can print (or return) the exact same step-by-step
+breakdown the dashboard shows — which dependency edges matched, their
+similarity and bonuses, the precision/recall/Fβ, the language blend
+weight, and which sentence-level penalties fired.
+
+```python
+from gris import compute_DepScore_emb
+
+score = compute_DepScore_emb(
+    hyps=["Der Hund lief schnell."],
+    refs=["Der Hund rannte schnell."],
+    lang="de",
+    explain=True,   # prints the full breakdown as it scores
+)
+```
+
+To get the breakdown back as data instead of (or as well as) printing it:
+
+```python
+score, details = compute_DepScore_emb(
+    hyps=["Der Hund lief schnell."],
+    refs=["Der Hund rannte schnell."],
+    lang="de",
+    return_details=True,
+)
+
+from gris import explain_dep_score
+explain_dep_score(details[0])   # pretty-print pair 1's breakdown yourself
+print(details[0]["matched"])    # or use the structured data directly
+```
+
+The CLI has the same option: `gris-score --hyp hyps.txt --ref refs.txt --lang de --explain`.
+
 Or from the command line:
 
 ```bash

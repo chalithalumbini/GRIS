@@ -4,14 +4,24 @@ with optional dependency/constituency tree visualizations.
 """
 
 import os
+import sys
 import csv
 import ftfy
 import unicodedata
 from graphviz import Digraph
 from nltk import Tree
 
+# Make `import gris.*` work whether or not this package has been pip-installed
+# (see dashboard_corrected.py for the same pattern / explanation).
+try:
+    import gris  # noqa: F401
+except ImportError:
+    _GRIS_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _GRIS_PARENT not in sys.path:
+        sys.path.insert(0, _GRIS_PARENT)
+
 from gris.parser import DepSentence
-from gris.matcher import compute_sentence_similarity
+from gris.matcher import compute_sentence_similarity, explain_dep_score
 
 # Centralized caching for heavy models
 from gris.model_cache import get_stanza_parser, get_embedder, get_constituency_parser
@@ -90,7 +100,26 @@ def compute_DepScore_emb(
     # flagged only, never penalized (WMT22 final design).
     passive_sent_penalty: float = 0.90,
     neg_sent_penalty: float = 0.90,
+    # NEW: interpretability
+    return_details: bool = False,
+    explain: bool = False,
 ):
+    """
+    Compute GRIS-DepScore for a list of hypothesis/reference pairs.
+
+    By default returns just the average score (float), unchanged from
+    earlier versions.
+
+    Set explain=True to print a step-by-step, human-readable breakdown of
+    each pair's score (edge matches, penalties, blend weights) as it runs —
+    this is the interpretability the dashboard shows, available here for
+    plain script/notebook usage.
+
+    Set return_details=True to additionally get the breakdown back as data:
+    returns (average_score, details_list), where details_list[i] is the
+    dict for pair i (usable directly with `explain_dep_score()` yourself,
+    or for building your own reports/tables).
+    """
     # Reuse heavy resources across calls (no repeated loading)
     dep_parser = get_stanza_parser(lang=lang)
     const_parser = get_constituency_parser(lang) if lang == "en" else None
@@ -98,6 +127,7 @@ def compute_DepScore_emb(
 
     total_score = 0.0
     csv_results = []
+    details_list = [] if (return_details or explain) else None
 
     svg_dir = os.path.join(os.getcwd(), "trees")
     if save_svg:
@@ -134,17 +164,35 @@ def compute_DepScore_emb(
             if const_r:
                 save_const_svg(const_r, os.path.join(svg_dir, f"pair{idx}_const_ref"))
 
-        s = compute_sentence_similarity(
-            dep_h,
-            dep_r,
-            embedder,
-            lang=lang,
-            matching=matching,
-            debug=debug,
-            soften_structure=True,
-            passive_sent_penalty=passive_sent_penalty,
-            neg_sent_penalty=neg_sent_penalty,
-        )
+        if return_details or explain:
+            s, details = compute_sentence_similarity(
+                dep_h,
+                dep_r,
+                embedder,
+                lang=lang,
+                matching=matching,
+                debug=debug,
+                soften_structure=True,
+                passive_sent_penalty=passive_sent_penalty,
+                neg_sent_penalty=neg_sent_penalty,
+                return_details=True,
+            )
+            details_list.append(details)
+            if explain:
+                print(f"\n╔══ Pair {idx}/{len(hyps)} " + "═" * 50)
+                explain_dep_score(details, hyp=hyp, ref=ref)
+        else:
+            s = compute_sentence_similarity(
+                dep_h,
+                dep_r,
+                embedder,
+                lang=lang,
+                matching=matching,
+                debug=debug,
+                soften_structure=True,
+                passive_sent_penalty=passive_sent_penalty,
+                neg_sent_penalty=neg_sent_penalty,
+            )
 
         total_score += s
         csv_results.append(
@@ -170,6 +218,8 @@ def compute_DepScore_emb(
             writer.writerows(csv_results)
         print(f"[INFO] Results saved to CSV: {csv_output}")
 
+    if return_details:
+        return final_score, details_list
     return final_score
 
 
@@ -185,6 +235,8 @@ def main():
     parser.add_argument("--embedding_type", type=str, choices=["word", "transformer"], default="word")
     parser.add_argument("--matching", type=str, choices=["hungarian", "greedy"], default="hungarian")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--explain", action="store_true",
+                         help="Print a step-by-step breakdown of how each score was derived.")
     parser.add_argument("--save_svg", action="store_true")
     parser.add_argument("--csv", type=str, default=None)
 
@@ -212,6 +264,7 @@ def main():
         embedding_type=args.embedding_type,
         matching=args.matching,
         debug=args.debug,
+        explain=args.explain,
         save_svg=args.save_svg,
         csv_output=args.csv,
         passive_sent_penalty=args.passive_sent_penalty,
