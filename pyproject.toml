@@ -25,7 +25,7 @@ dependencies = [
     "spacy>=3.5",
     "benepar>=0.2.0",
     "ftfy>=6.1",
-    "nltk>=3.8",
+    "nltk>=3.8,<3.10",
     "graphviz>=0.20",
 ]
 
