@@ -1,13 +1,13 @@
 from gris import compute_DepScore_emb
 
 # Example translations
-references = ["The doctor recovered the patient"]
-hypotheses = ["The physicial recovered the patient "]
+references = ["Sie kÃ¶nnen jederzeit wiederkommen, da unser Chat-Service-Fenster tÃ¤glich rund um die Uhr geÃ¶ffnet ist"]
+hypotheses = ["Sie kÃ¶nnen jederzeit zurÃ¼ckkehren, da unser Chat-Service-Fenster rund um die Uhr geÃ¶ffnet ist"]
 
 score = compute_DepScore_emb(
     hyps=hypotheses,
     refs=references,
-    lang="en",
+    lang="de",
     explain=True,
 )
 
