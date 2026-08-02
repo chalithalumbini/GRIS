@@ -7,7 +7,8 @@ hypotheses = ["Der Hund lief schnell."]
 score = compute_DepScore_emb(
     hyps=hypotheses,
     refs=references,
-    lang="de"
+    lang="de",
+    explain=True,
 )
 
 print("GRIS-DepScore:", score)
