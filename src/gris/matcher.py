@@ -511,6 +511,11 @@ def compute_sentence_similarity(
         head, dep = edge
         return f"{head.text}→{dep.text} ({dep.deprel or 'dep'})"
 
+    def _edge_struct(edge):
+        head, dep = edge
+        return {"head_word": head.text, "dep_word": dep.text,
+                "deprel": dep.deprel or "dep"}
+
     matched_detail = []
     unmatched_hyp_detail, unmatched_ref_detail = [], []
     verbosity_fired = False
@@ -525,9 +530,9 @@ def compute_sentence_similarity(
         edge_f1 = sentence_cosine
         prec = rec = sentence_cosine
         for e in hyp_edges:
-            unmatched_hyp_detail.append({"edge": _edge_label(e)})
+            unmatched_hyp_detail.append({"edge": _edge_label(e), **_edge_struct(e)})
         for e in ref_edges:
-            unmatched_ref_detail.append({"edge": _edge_label(e)})
+            unmatched_ref_detail.append({"edge": _edge_label(e), **_edge_struct(e)})
     else:
         sim_matrix = np.zeros((len(hyp_edges), len(ref_edges)), dtype=np.float32)
         attr_matrix = [[None] * len(ref_edges) for _ in range(len(hyp_edges))]
@@ -552,6 +557,8 @@ def compute_sentence_similarity(
                 matched_detail.append({
                     "hyp_edge": _edge_label(hyp_edges[i]),
                     "ref_edge": _edge_label(ref_edges[j]),
+                    "hyp": _edge_struct(hyp_edges[i]),
+                    "ref": _edge_struct(ref_edges[j]),
                     "similarity": round(float(sim_matrix[i, j]), 4),
                     "head_sim":   a.get("head_sim"),
                     "dep_sim":    a.get("dep_sim"),
@@ -560,10 +567,12 @@ def compute_sentence_similarity(
                 })
             for i in range(len(hyp_edges)):
                 if i not in matched_i:
-                    unmatched_hyp_detail.append({"edge": _edge_label(hyp_edges[i])})
+                    unmatched_hyp_detail.append({"edge": _edge_label(hyp_edges[i]),
+                                                  **_edge_struct(hyp_edges[i])})
             for j in range(len(ref_edges)):
                 if j not in matched_j:
-                    unmatched_ref_detail.append({"edge": _edge_label(ref_edges[j])})
+                    unmatched_ref_detail.append({"edge": _edge_label(ref_edges[j]),
+                                                  **_edge_struct(ref_edges[j])})
             matched_detail.sort(key=lambda d: d["similarity"], reverse=True)
 
         total_sim = float(sum(sim_matrix[i, j] for i, j in zip(row_ind, col_ind)))
@@ -660,16 +669,178 @@ def compute_sentence_similarity(
 # Human-readable explanation of a return_details=True breakdown
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Plain-English names for Universal Dependencies relation labels, used to turn
+# "lief→Hund (nsubj)" into "'Hund' is the subject of 'lief'".
+_DEPREL_PLAIN = {
+    "nsubj": "the subject of", "nsubj:pass": "the subject of",
+    "csubj": "the subject of", "csubj:pass": "the subject of",
+    "obj": "the object of", "iobj": "the indirect object of",
+    "obl": "linked to", "obl:agent": "the agent of",
+    "obl:tmod": "a time expression modifying", "obl:npmod": "a modifier of",
+    "advmod": "an adverb modifying", "amod": "an adjective describing",
+    "det": "a determiner for", "aux": "a helping verb for",
+    "aux:pass": "a helping verb for", "cop": "a linking verb for",
+    "mark": "a connector introducing", "case": "a preposition attached to",
+    "nmod": "a modifier of", "nummod": "a number modifying",
+    "conj": "connected to", "cc": "a conjunction linking",
+    "punct": "punctuation for", "compound": "part of a compound with",
+    "flat": "part of a name with", "appos": "describing",
+    "xcomp": "a complement of", "ccomp": "a clausal complement of",
+    "acl": "a clause modifying", "advcl": "an adverbial clause modifying",
+    "root": "the main verb",
+}
+
+
+def _deprel_plain(rel: str) -> str:
+    return _DEPREL_PLAIN.get(rel, f"related ({rel}) to")
+
+
+def _quality_label(score: float) -> str:
+    if score >= 0.90: return "Excellent"
+    if score >= 0.75: return "Good"
+    if score >= 0.60: return "Acceptable"
+    if score >= 0.40: return "Weak"
+    return "Poor"
+
+
+def _plain_language_summary(details: dict, hyp: str = None, ref: str = None) -> list:
+    """Build the human-readable narrative section (a list of lines)."""
+    lines = []
+    w = lines.append
+    fs = details["final_score"]
+
+    w(f"PLAIN-LANGUAGE SUMMARY")
+    w("-" * 72)
+    if ref is not None: w(f"Reference:  {ref}")
+    if hyp  is not None: w(f"Translation: {hyp}")
+    w("")
+    w(f"Score: {fs:.2f} out of 1.00  →  {_quality_label(fs)} translation")
+    w("")
+
+    # What was preserved correctly
+    exact, paraphrased, weak = [], [], []
+    head_paraphrases = {}  # (ref_head, hyp_head) -> best head_sim seen, deduped
+    for m in details["matched"]:
+        hd, rd = m["hyp"]["dep_word"], m["ref"]["dep_word"]
+        h_head, r_head = m["hyp"]["head_word"], m["ref"]["head_word"]
+        rel = _deprel_plain(m["ref"]["deprel"])
+        has_exact_lemma = any(name == "exact_lemma" for name, _ in m["bonuses"])
+
+        if h_head.lower() != r_head.lower():
+            head_paraphrases[(r_head, h_head)] = max(
+                head_paraphrases.get((r_head, h_head), 0), m["head_sim"] or 0)
+
+        if m["similarity"] >= 0.90 and has_exact_lemma:
+            exact.append(f"'{rd}' — {rel} '{r_head}' — is preserved correctly")
+        elif m["similarity"] >= 0.75:
+            if hd.lower() == rd.lower():
+                paraphrased.append(f"'{rd}' — {rel} '{r_head}' — matches")
+            else:
+                paraphrased.append(
+                    f"'{rd}' was translated as '{hd}' — a close paraphrase, "
+                    f"still {rel} the equivalent of '{r_head}'")
+        else:
+            weak.append(f"'{rd}' (reference) vs '{hd}' (translation) — "
+                         f"{rel} '{r_head}', but the match is weak")
+
+    if exact:
+        w("What's preserved exactly:")
+        for e in exact: w(f"  ✅ {e}")
+        w("")
+    if head_paraphrases:
+        w("Word choice differences (same grammatical role, different word):")
+        for (r_head, h_head), sim in head_paraphrases.items():
+            closeness = ("a close synonym" if sim >= 0.75 else
+                         "a related word" if sim >= 0.5 else "a different word")
+            w(f"  🔤 Reference says '{r_head}', translation says '{h_head}' — "
+              f"{closeness} (similarity={sim:.2f})")
+        w("")
+    if paraphrased:
+        w("What's preserved with minor wording differences:")
+        for p in paraphrased: w(f"  🟡 {p}")
+        w("")
+    if weak:
+        w("Parts that differ more substantially:")
+        for x in weak: w(f"  🟠 {x}")
+        w("")
+
+    if details["unmatched_ref"]:
+        w("Missing from the translation (present in the reference but not the hypothesis):")
+        for e in details["unmatched_ref"]:
+            w(f"  ❌ '{e['dep_word']}' ({_deprel_plain(e['deprel'])} '{e['head_word']}')")
+        w("")
+    if details["unmatched_hyp"]:
+        w("Extra content in the translation (not present in the reference):")
+        for e in details["unmatched_hyp"]:
+            w(f"  ➕ '{e['dep_word']}' ({_deprel_plain(e['deprel'])} '{e['head_word']}')")
+        w("")
+
+    # Grammar-level issues
+    issues = []
+    n, p = details["negation"], details["passive"]
+    if n["mismatch"]:
+        issues.append(
+            "⚠️  Negation mismatch — one sentence says 'not' (or similar) and the "
+            "other doesn't. This changes the actual meaning, so it lowers the score.")
+    if p["mismatch"]:
+        issues.append(
+            "ℹ️  Voice differs (active vs. passive) between the two sentences. "
+            "This is noted but does NOT lower the score — it's considered a valid "
+            "paraphrase style.")
+    if details["propn_check_fired"]:
+        issues.append(
+            "⚠️  The main named-entity subject doesn't match between the translation "
+            "and the reference (e.g. a different name/entity as the subject).")
+    if details["verbosity_penalty_fired"]:
+        issues.append(
+            "⚠️  The translation is noticeably longer/more verbose than the reference.")
+    if issues:
+        w("Grammar-level checks:")
+        for i in issues: w(f"  {i}")
+        w("")
+
+    # One-line "why this score" takeaway
+    w("Why this score:")
+    w(f"  The grammatical structure matched {details['edge_f1']*100:.0f}% "
+      f"(precision={details['precision']:.2f}, recall={details['recall']:.2f}), "
+      f"and overall meaning similarity was {details['sentence_cosine']*100:.0f}%. "
+      f"For this language, structure counts for {details['blend_weight_W']*100:.0f}% "
+      f"of the score and overall meaning for the remaining "
+      f"{(1-details['blend_weight_W'])*100:.0f}%.")
+    if n["mismatch"]:
+        w(f"  The negation mismatch above reduced the score by "
+          f"{(1-n['penalty_applied'])*100:.0f}%.")
+
+    return lines
+
+
 def explain_dep_score(details: dict, hyp: str = None, ref: str = None,
-                       top_n: int = 10) -> str:
+                       top_n: int = 10, technical: bool = True) -> str:
     """
     Render a `details` dict from compute_sentence_similarity(..., return_details=True)
     (or the details list returned by scorer.compute_DepScore_emb(..., return_details=True))
-    as a readable, step-by-step explanation of how the GRIS-DepScore was derived.
+    as a human-readable explanation of how the GRIS-DepScore was derived.
+
+    Always prints a plain-language summary first (what was preserved, what's
+    missing/added, and why the score came out where it did — no jargon).
+
+    If technical=True (default), also prints the full step-by-step numeric
+    trace (edge matching, precision/recall/Fβ, blend formula, penalties) below
+    the plain-language summary, for readers who want the exact mechanics.
+    Pass technical=False to show only the plain-language summary.
 
     Prints the explanation and also returns it as a string.
     """
-    lines = []
+    lines = _plain_language_summary(details, hyp=hyp, ref=ref)
+
+    if not technical:
+        text = "\n".join(lines)
+        print(text)
+        return text
+
+    lines.append("")
+    lines.append("=" * 72)
+    lines.append("TECHNICAL BREAKDOWN")
     w = lines.append
     w("=" * 72)
     if hyp is not None or ref is not None:

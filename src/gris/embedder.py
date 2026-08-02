@@ -31,9 +31,37 @@ class EmbeddingModel:
             raise ValueError("embedding_type must be 'word' or 'transformer'")
 
     def _load_word_embeddings(self):
+        import os
         import gensim.downloader as api
-        print(f"[INFO] Loading word embeddings: {self.model_name}...")
-        self.word_vectors = api.load(self.model_name)
+        from gensim.models import KeyedVectors
+
+        # gensim.downloader.load() already caches the RAW download on disk
+        # (default: ~/gensim-data) and won't re-fetch it over the network.
+        # But it still re-parses that raw file (a large plain-text vector
+        # file) from scratch on every call, which is slow and looks just
+        # like a fresh download. To fix that, cache the *parsed* vectors in
+        # gensim's fast binary format (mmap-loadable) after the first load,
+        # so every run after the first is near-instant instead of a full
+        # re-parse.
+        cache_dir = os.environ.get(
+            "GRIS_EMBED_CACHE_DIR",
+            os.path.join(os.path.expanduser("~"), ".gris_cache", "word_vectors"),
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+        fast_path = os.path.join(cache_dir, f"{self.model_name}.kv")
+
+        if os.path.exists(fast_path):
+            print(f"[INFO] Loading cached word embeddings from {fast_path} "
+                  f"(fast binary format)...")
+            self.word_vectors = KeyedVectors.load(fast_path, mmap="r")
+        else:
+            print(f"[INFO] Loading word embeddings: {self.model_name} "
+                  f"(first run — this is slow, but only happens once)...")
+            self.word_vectors = api.load(self.model_name)
+            print(f"[INFO] Caching parsed vectors to {fast_path} for fast reuse "
+                  f"on future runs...")
+            self.word_vectors.save(fast_path)
+
         self.embedding_dim = int(self.word_vectors.vector_size)
         print(f"[OK] Loaded {len(self.word_vectors)} word vectors (dim={self.embedding_dim})")
 
